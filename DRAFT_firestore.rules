@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- Validation Blueprints ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 6
+        && data.id == request.auth.uid
+        && data.name is string && data.name.size() <= 100
+        && data.email is string && data.email.size() <= 100
+        && data.role == 'patient'
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function isValidReminder(data) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'dosage', 'time', 'taken', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 8
+        && data.userId == request.auth.uid
+        && data.name is string && data.name.size() <= 200
+        && data.dosage is string && data.dosage.size() <= 100
+        && data.time is string && data.time.size() <= 20
+        && data.taken is bool
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function isValidCalendarEvent(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'date', 'type', 'category', 'createdAt', 'updatedAt'])
+        && data.keys().size() >= 8
+        && data.userId == request.auth.uid
+        && data.title is string && data.title.size() <= 200
+        && data.date is string && data.date.size() <= 20
+        && (data.type == 'public' || data.type == 'personal')
+        && (data.category in ['health_day', 'appointment', 'medication', 'cycle', 'alert', 'vaccination'])
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    // --- Collection Rules ---
+
+    match /users/{userId} {
+      allow get, list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) 
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'avatar', 'updatedAt'])
+        && incoming().updatedAt == request.time;
+
+      match /reminders/{reminderId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidReminder(incoming()) && isValidId(reminderId);
+        allow update: if isOwner(userId)
+          && incoming().diff(existing()).affectedKeys().hasAny(['taken', 'name', 'dosage', 'time', 'updatedAt'])
+          && incoming().updatedAt == request.time;
+        allow delete: if isOwner(userId);
+      }
+
+      match /events/{eventId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidCalendarEvent(incoming()) && isValidId(eventId);
+        allow update: if isOwner(userId)
+          && incoming().diff(existing()).affectedKeys().hasAny(['title', 'date', 'time', 'status', 'description', 'updatedAt'])
+          && incoming().updatedAt == request.time;
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    match /doctors/{doctorId} {
+      allow read: if isSignedIn();
+      // Write access restricted to admins (manually managed or via internal system)
+      allow write: if false;
+    }
+  }
+}

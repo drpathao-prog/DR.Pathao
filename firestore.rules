@@ -1,0 +1,222 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn();
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Role check - requires a lookup
+    function isAdmin() {
+      // In this app, we might designate a specific UID as admin or check an admins collection
+      // For now, we'll check if the UID exists in /admins/
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // --- Validation Helpers ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'name', 'email', 'role']) &&
+             data.id == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.email is string && data.email.size() <= 255 &&
+             data.role == 'patient' &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
+             (!('dob' in data) || (data.dob is string)) &&
+             (!('sex' in data) || (data.sex in ['male', 'female', 'other'])) &&
+             (!('bloodGroup' in data) || (data.bloodGroup is string)) &&
+             (!('onboardingComplete' in data) || (data.onboardingComplete is bool)) &&
+             (!('phoneVerified' in data) || (data.phoneVerified is bool));
+    }
+
+    function isValidReminder(data) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'dosage', 'time', 'taken']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.name is string && data.name.size() <= 100 &&
+             data.dosage is string && data.dosage.size() <= 50 &&
+             data.time is string &&
+             data.taken is bool &&
+             (!('frequency' in data) || (data.frequency in ['daily', 'weekly', 'monthly']));
+    }
+
+    function isValidCalendarEvent(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'date', 'type', 'category']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.title is string && data.title.size() <= 100 &&
+             data.date is string &&
+             data.type in ['public', 'personal'] &&
+             data.category in ['health_day', 'appointment', 'medication', 'cycle', 'alert', 'vaccination', 'screening'] &&
+             (!('status' in data) || (data.status in ['pending', 'completed', 'skipped']));
+    }
+
+    function isValidAppointment(data) {
+      return data.keys().hasAll(['doctorId', 'doctorName', 'userId', 'status', 'fee', 'type']) &&
+             data.userId == request.auth.uid &&
+             data.status in ['pending', 'confirmed', 'cancelled'] &&
+             data.fee is number &&
+             data.type in ['tele', 'home'] &&
+             (!('preferredDate' in data) || (data.preferredDate is string)) &&
+             (!('preferredTime' in data) || (data.preferredTime is string)) &&
+             (!('bookingOption' in data) || (data.bookingOption in ['scheduled', 'asap', 'queue'])) &&
+             (!('userName' in data) || (data.userName is string));
+    }
+
+    function isValidPrescription(data) {
+      return data.keys().hasAll(['userId', 'medicines', 'status']) &&
+             data.userId == request.auth.uid &&
+             data.medicines is list &&
+             data.status is string;
+    }
+
+    function isValidNursingBooking(data) {
+      return data.keys().hasAll(['userId', 'nurseId', 'location', 'duration', 'status', 'totalFee']) &&
+             data.userId == request.auth.uid &&
+             data.status in ['pending', 'confirmed', 'completed', 'cancelled'] &&
+             data.totalFee is number;
+    }
+
+    // --- Collection Rules ---
+
+    // 1. Users
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin(); // Users should not list other users
+      
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      
+      allow update: if isOwner(userId) && (
+        (isValidUser(incoming()) && 
+         incoming().id == existing().id &&
+         incoming().role == existing().role &&
+         incoming().email == existing().email &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'dob', 'age', 'sex', 'bloodGroup', 'avatar', 'address', 'emergencyContact', 'onboardingComplete', 'phoneVerified', 'updatedAt'])) ||
+        isAdmin()
+      );
+      
+      allow delete: if isAdmin();
+      
+      // Sub-collections
+      match /reminders/{reminderId} {
+        allow get: if isOwner(userId) && isValidId(reminderId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isVerified() && isValidReminder(incoming());
+        allow update: if isOwner(userId) && isVerified() && (
+          (isValidReminder(incoming()) &&
+           incoming().userId == existing().userId &&
+           incoming().id == existing().id &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'dosage', 'time', 'frequency', 'taken', 'notes', 'updatedAt'])) ||
+          isAdmin()
+        );
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /events/{eventId} {
+        allow get: if isOwner(userId) && isValidId(eventId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isVerified() && isValidCalendarEvent(incoming());
+        allow update: if isOwner(userId) && isVerified() && (
+          (isValidCalendarEvent(incoming()) &&
+           incoming().userId == existing().userId &&
+           incoming().id == existing().id &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['title', 'date', 'time', 'category', 'description', 'location', 'status', 'updatedAt'])) ||
+          isAdmin()
+        );
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // 2. Appointments
+    match /appointments/{id} {
+      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      allow create: if isSignedIn() && isValidAppointment(incoming());
+      
+      allow update: if isVerified() && (
+        (isValidAppointment(incoming()) &&
+         incoming().userId == existing().userId &&
+         incoming().doctorId == existing().doctorId &&
+         (
+           // Action: Cancel
+           (incoming().status == 'cancelled' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+           // Action: Update preferences (only if pending)
+           (existing().status == 'pending' && incoming().diff(existing()).affectedKeys().hasOnly(['preferredDate', 'preferredTime', 'updatedAt']))
+         )) ||
+        isAdmin()
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    // 3. Nursing Bookings
+    match /nursing_bookings/{id} {
+      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      allow create: if isSignedIn() && isValidNursingBooking(incoming());
+      
+      allow update: if (isVerified() && resource.data.userId == request.auth.uid && incoming().status == 'cancelled' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+                       isAdmin();
+      
+      allow delete: if isAdmin();
+    }
+
+    // 4. Doctors (Public)
+    match /doctors/{doctorId} {
+      allow get: if isSignedIn() && isValidId(doctorId);
+      allow list: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 5. Master Calendar (managed by admin, readable by all signed in)
+    match /master_calendar/{eventId} {
+      allow get, list: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 6. Prescriptions
+    match /prescriptions/{id} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin()) && isValidId(id);
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Allow users to digitize their own prescriptions
+      allow create: if isVerified() && isValidPrescription(incoming()) &&
+                       incoming().processedAt == request.time;
+      
+      allow update: if isAdmin();
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // 6. Admins collection (to bootstrap admin access)
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Only manageable via console
+    }
+  }
+}

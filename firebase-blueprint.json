@@ -1,0 +1,173 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Stores user profile information.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "avatar": { "type": "string" },
+        "role": { "type": "string", "enum": ["patient"] },
+        "dob": { "type": "string", "format": "date" },
+        "age": { "type": "number" },
+        "sex": { "type": "string", "enum": ["male", "female", "other"] },
+        "bloodGroup": { "type": "string" },
+        "onboardingComplete": { "type": "boolean" },
+        "phoneVerified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "Reminder": {
+      "title": "Medication Reminder",
+      "description": "Personal medication and health reminders.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "dosage": { "type": "string" },
+        "time": { "type": "string" },
+        "frequency": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
+        "taken": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "name", "dosage", "time", "taken"]
+    },
+    "CalendarEvent": {
+      "title": "Calendar Event",
+      "description": "Health-related calendar events (appointments, cycle tracking, etc).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "time": { "type": "string" },
+        "type": { "type": "string", "enum": ["public", "personal"] },
+        "category": { "type": "string", "enum": ["health_day", "appointment", "medication", "cycle", "alert", "vaccination", "screening"] },
+        "description": { "type": "string" },
+        "location": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed", "skipped"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "title", "date", "type", "category"]
+    },
+    "Doctor": {
+      "title": "Doctor",
+      "description": "Public directory of available doctors.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "specialty": { "type": "string" },
+        "qualification": { "type": "string" },
+        "experience": { "type": "number" },
+        "rating": { "type": "number" },
+        "consultationFee": { "type": "number" },
+        "available": { "type": "boolean" },
+        "avatar": { "type": "string" }
+      },
+      "required": ["id", "name", "specialty"]
+    },
+    "Prescription": {
+      "title": "Prescription",
+      "description": "Digitized prescription records.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string" },
+        "processedAt": { "type": "string", "format": "date-time" },
+        "medicines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "dosage": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["userId", "medicines", "status"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Doctor consultation bookings.",
+      "type": "object",
+      "properties": {
+        "doctorId": { "type": "number" },
+        "doctorName": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "cancelled"] },
+        "fee": { "type": "number" },
+        "type": { "type": "string", "enum": ["tele", "home"] },
+        "preferredDate": { "type": "string", "format": "date" },
+        "preferredTime": { "type": "string" },
+        "bookingOption": { "type": "string", "enum": ["scheduled", "asap", "queue"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["doctorId", "doctorName", "userId", "status", "fee", "type"]
+    },
+    "NursingBooking": {
+      "title": "Nursing Booking",
+      "description": "Home nursing service bookings.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "nurseId": { "type": "number" },
+        "nurseName": { "type": "string" },
+        "location": { "type": "string" },
+        "duration": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "completed", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "totalFee": { "type": "number" }
+      },
+      "required": ["userId", "nurseId", "location", "duration", "status", "totalFee"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile document."
+    },
+    "/appointments/{id}": {
+      "schema": "Appointment",
+      "description": "Doctor consultation bookings."
+    },
+    "/nursing_bookings/{id}": {
+      "schema": "NursingBooking",
+      "description": "Home nursing service bookings."
+    },
+    "/prescriptions/{id}": {
+      "schema": "Prescription",
+      "description": "User prescriptions."
+    },
+    "/users/{userId}/reminders/{reminderId}": {
+      "schema": "Reminder",
+      "description": "Personal reminders for a user."
+    },
+    "/users/{userId}/events/{eventId}": {
+      "schema": "CalendarEvent",
+      "description": "Personal calendar events for a user."
+    },
+    "/master_calendar/{eventId}": {
+      "schema": "CalendarEvent",
+      "description": "Global health calendar events managed by admins."
+    },
+    "/doctors/{doctorId}": {
+      "schema": "Doctor",
+      "description": "Public doctor profiles."
+    }
+  }
+}
